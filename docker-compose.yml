@@ -1,0 +1,89 @@
+version: "3.7"
+
+x-app-service: &app-service
+  env_file: .env
+  environment:
+    - REDIS_HOST=redis
+    - SENTRY_DSN
+    - SECRET_KEY
+    - DB_PASSWORD
+    - DEBUG
+    - ALLOWED_HOSTS
+    - TIME_ZONE
+    - LOGGING_LEVEL
+    - STATIC_URL
+    - MEDIA_URL
+    - PUBLIC_ORIGIN
+    - TELEGRAM_API_ORIGIN
+  image: ${BACKEND_IMAGE_REFERENCE:-easyticketsbot_backend}
+  command: sh -c "./scripts/wait-for db:5432 -- ./docker-entrypoint.sh"
+  volumes:
+    - static_data:/srv/static
+    - media_data:/srv/media
+  depends_on:
+    - db
+    - redis
+  restart: always
+
+services:
+  nginx:
+    image: ${NGINX_IMAGE_REFERENCE:-easyticketsbot_nginx}
+    volumes:
+      - media_data:/srv/media
+      - static_data:/srv/static
+    ports:
+      - ${HTTP_PUBLIC_PORT:-127.0.0.1:50609}:80
+    depends_on:
+      - app
+      - frontend
+    deploy:
+      mode: global
+
+  app:
+    <<: *app-service
+    deploy:
+      mode: replicated
+      replicas: 1
+
+  scheduler:
+    <<: *app-service
+    command: sh -c "./scripts/wait-for db:5432 -- ./manage.py notification_scheduler"
+    deploy:
+      mode: global
+
+  payment_scheduler:
+    <<: *app-service
+    command: sh -c "./scripts/wait-for db:5432 -- ./manage.py payment_scheduler"
+    deploy:
+      mode: global
+
+  db:
+    image: postgres:11-alpine
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    env_file: .env
+    environment:
+      POSTGRES_USER: robot
+      POSTGRES_DB: easyticketsbot
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    restart: always
+    deploy:
+      mode: global
+
+  frontend:
+    image: ${FRONTEND_IMAGE_REFERENCE:-easyticketsbot_frontend}
+    restart: always
+
+  redis:
+    image: redis:6.0-alpine
+    restart: always
+    volumes:
+      - redis_data:/data
+    deploy:
+      mode: global
+
+volumes:
+  db_data:
+  static_data:
+  media_data:
+  redis_data:

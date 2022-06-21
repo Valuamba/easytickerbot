@@ -1,0 +1,94 @@
+stages:
+  - linting
+  - building-and-pushing
+  - testing
+  - deployment
+
+variables:
+  NGINX_IMAGE_REFERENCE: ${CI_REGISTRY_IMAGE}/nginx:rev-${CI_COMMIT_SHORT_SHA}
+  BACKEND_IMAGE_REFERENCE: ${CI_REGISTRY_IMAGE}/backend:rev-${CI_COMMIT_SHORT_SHA}
+  FRONTEND_IMAGE_REFERENCE: ${CI_REGISTRY_IMAGE}/frontend:rev-${CI_COMMIT_SHORT_SHA}
+
+.docker:
+  - &docker-login-command docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+
+linting:
+  stage: linting
+  image: registry.gitlab.com/easytickets/docker-images/linters:latest
+  script:
+    # TODO: add prettier
+    - flake8 --version; flake8 .
+    - isort --version; isort --profile black --check --diff .
+    - black --version; black --check .
+
+building and pushing backend:
+  stage: building-and-pushing
+  image: docker/compose:alpine-1.26.2
+  before_script:
+    - touch .env
+    - *docker-login-command
+  script:
+    - docker-compose -f docker-compose.yml -f docker-compose.build.yml build
+    - docker-compose -f docker-compose.yml -f docker-compose.build.yml push
+
+testing:
+  stage: testing
+  image: docker/compose:alpine-1.26.2
+  variables:
+    COMPOSE_PROJECT_NAME: easyticketsbot-${CI_JOB_ID}
+    DB_PASSWORD: db_password_secret
+    POSTGRES_PASSWORD: db_password_secret
+    SECRET_KEY: secret_key_secret
+    PUBLIC_ORIGIN: https://easytickets
+    YANDEX_CHECKOUT_ACCOUNT_ID: yandex_checkout_account_id
+    YANDEX_CHECKOUT_SECRET_KEY: yandex_checkout_secret_key
+    TELEGRAM_YANDEX_CHECKOUT_TOKEN: telegram_yandex_checkout_token
+  before_script:
+    - touch .env
+    - *docker-login-command
+  script:
+    - echo "Running test suite..."
+    - docker-compose run app sh -c "./scripts/wait-for db:5432 -- ./test.sh"
+  after_script:
+    - docker-compose down -v
+  coverage: '/TOTAL.*?(\d+%)$/'
+
+deployment:
+  stage: deployment
+  image: docker/compose:alpine-1.26.2
+  only:
+    - master
+  before_script:
+    - touch .env
+    - *docker-login-command
+    - apk add openssh-client
+    - eval $(ssh-agent -s)
+    - echo "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add -
+    - mkdir -p ~/.ssh
+    - chmod 700 ~/.ssh
+    - ssh-keyscan ${DEPLOYMENT_HOST} >> ~/.ssh/known_hosts
+    - chmod 644 ~/.ssh/known_hosts
+  variables:
+    SECRET_KEY: ${DEPLOYMENT_SECRET_KEY}
+    DB_PASSWORD: ${DEPLOYMENT_DB_PASSWORD}
+    ALLOWED_HOSTS: ${DEPLOYMENT_ALLOWED_HOSTS}
+    PUBLIC_ORIGIN: ${DEPLOYMENT_PUBLIC_ORIGIN}
+    SENTRY_DSN: ${DEPLOYMENT_SENTRY_DSN}
+    DEBUG: 0
+    LOGGING_LEVEL: debug
+  script:
+    - docker pull ${NGINX_IMAGE_REFERENCE}
+    - docker pull ${BACKEND_IMAGE_REFERENCE}
+    - docker pull ${FRONTEND_IMAGE_REFERENCE}
+    - docker tag ${NGINX_IMAGE_REFERENCE} ${CI_REGISTRY_IMAGE}/nginx:latest
+    -  BACKEND_IMAGE_REFERENCE: ${CI_REGISTRY_IMAGE}/backend:rev-${CI_COMMIT_SHORT_SHA}
+    - export BACKEND_IMAGE_REFERENCE=${CI_REGISTRY_IMAGE}/backend:latest
+    - docker tag ${BACKEND_IMAGE_REFERENCE} ${CI_REGISTRY_IMAGE}/backend:latest
+    - docker tag ${FRONTEND_IMAGE_REFERENCE} ${CI_REGISTRY_IMAGE}/frontend:latest
+    - docker push ${CI_REGISTRY_IMAGE}/nginx:latest
+    - docker push ${CI_REGISTRY_IMAGE}/backend:latest
+    - docker push ${CI_REGISTRY_IMAGE}/frontend:latest
+    - export NGINX_IMAGE_REFERENCE=${CI_REGISTRY_IMAGE}/nginx:latest
+    - export FRONTEND_IMAGE_REFERENCE=${CI_REGISTRY_IMAGE}/frontend:latest
+    - export DOCKER_HOST="ssh://${DEPLOYMENT_USER}@${DEPLOYMENT_HOST}"
+    - docker stack deploy -c docker-compose.yml -c docker-compose.prod.yml --with-registry-auth --prune easyticketsbot

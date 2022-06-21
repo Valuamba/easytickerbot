@@ -1,0 +1,17 @@
+version: "3.7"
+
+services:
+  nginx:
+    build: ./deployment/nginx
+
+  app:
+    build: .
+
+  scheduler:
+    build: .
+
+  payment_scheduler:
+    build: .
+
+  frontend:
+    build: ./frontend

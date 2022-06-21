@@ -1,0 +1,13 @@
+.git/
+
+*.pyc
+*.swp
+
+.pytest_cache/
+
+.idea/
+.vscode/
+
+.venv/
+.env
+/.env*

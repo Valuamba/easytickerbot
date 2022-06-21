@@ -1,0 +1,22 @@
+*.swp
+*.pyc
+*.sqlite3
+
+.env
+.venv
+
+# Project media
+/media/
+
+# Project static
+/static/
+
+# Database data
+/db_data/
+
+.idea/
+.vscode/
+
+docker-compose.override.yml
+
+.coverage
