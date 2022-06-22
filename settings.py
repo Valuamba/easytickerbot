@@ -19,7 +19,8 @@ import sentry_sdk
 from dotenv import load_dotenv
 from sentry_sdk.integrations.django import DjangoIntegration
 
-load_dotenv()
+dotenv_path = os.path.join(Path(__file__).resolve().parent, '.env.build')
+load_dotenv(dotenv_path=dotenv_path)
 
 
 SENTRY_DSN = os.getenv("SENTRY_DSN")
@@ -46,7 +47,7 @@ BASE_DIR = Path(__file__).resolve().parent
 # See https://docs.djangoproject.com/en/3.1/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.environ["SECRET_KEY"]
+SECRET_KEY = os.getenv("SECRET_KEY")
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.getenv("DEBUG", "1") == "1"
@@ -120,11 +121,11 @@ WSGI_APPLICATION = "apps.wsgi.application"
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.postgresql_psycopg2",
-        "NAME": "easyticketsbot",
-        "USER": "robot",
+        "NAME": os.environ["DB_NAME"],
+        "USER": os.environ["DB_USER"],
         "PASSWORD": os.environ["DB_PASSWORD"],
-        "HOST": "db",
-        "PORT": "5432",
+        "HOST": os.environ["DB_HOST"],
+        "PORT": "5436",
     }
 }
 
